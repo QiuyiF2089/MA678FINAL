@@ -1,0 +1,575 @@
+---
+title: "model"
+author: "sts"
+date: "2024-11-23"
+output: html_document
+---
+```{r}
+data<-read.csv('data.csv')
+
+
+```
+
+```{r}
+data[is.na(data)] <- 0
+
+data
+```
+```{r}
+# 加载必要的包
+library(ggplot2)
+library(dplyr)
+
+```
+```{r}
+
+# 假设你的数据存储在 data_frame 中
+# 将 Date 转换为日期格式并提取年份
+data <- data %>%
+  mutate(Date = as.Date(Date),          # 确保 Date 是日期格式
+         Year = format(Date, "%Y")) %>% # 提取年份
+  mutate(Year = as.numeric(Year))       # 转换为数值型，方便后续操作
+
+# 动态选择年份相关的列
+datatest <- data %>%
+  mutate(
+    POPESTIMATE = case_when(
+      Year == 2020 ~ POPESTIMATE2020,
+      Year == 2021 ~ POPESTIMATE2021,
+      Year == 2022 ~ POPESTIMATE2022,
+      TRUE ~ NA_real_
+    ),
+    density = case_when(
+      Year == 2020 ~ density2020,
+      Year == 2021 ~ density2021,
+      Year == 2022 ~ density2022,
+      TRUE ~ NA_real_
+    ),
+    income = case_when(
+      Year == 2020 ~ X2020income,
+      Year == 2021 ~ X2021income,
+      Year == 2022 ~ X2022income,
+      TRUE ~ NA_real_
+    )
+  )
+
+# 删除临时变量列
+datatest <- datatest %>%
+  select(-starts_with("POPESTIMATE20"),
+         -starts_with("density20"),
+         -starts_with("X2020income"),
+         -starts_with("X2021income"),
+         -starts_with("X2022income"))
+
+# 查看结果
+head(datatest)
+
+
+```
+```{r}
+# 指定要删除的列
+columns_to_remove <- c("Census2019", "USPS", "ALAND_SQMI", "AWATER_SQMI")
+
+# 从数据框中删除指定列
+datatest <- datatest %>%
+  select(-all_of(columns_to_remove))
+
+datatest
+```
+```{r}
+colnames(datatest)
+```
+```{r}
+datatest <- datatest[, !(names(datatest) %in% c("Year", "Date"))]
+
+# 进行分组聚合
+library(dplyr)
+
+result <- datatest %>%
+  group_by(State, County) %>%
+  summarise(
+    DeathNumber = max(DeathNumber, na.rm = TRUE),
+    CaseNumber = max(CaseNumber, na.rm = TRUE),
+    Administered_Dose1_Pop_Pct = max(Administered_Dose1_Pop_Pct, na.rm = TRUE),
+    Series_Complete_Pop_Pct = max(Series_Complete_Pop_Pct, na.rm = TRUE),
+    Booster_Doses_Vax_Pct = max(Booster_Doses_Vax_Pct, na.rm = TRUE),
+    POPESTIMATE = mean(POPESTIMATE, na.rm = TRUE),
+    density = mean(density, na.rm = TRUE),
+    income = mean(income, na.rm = TRUE),
+    Age.Percent.65.and.Older = mean(Age.Percent.65.and.Older, na.rm = TRUE)
+  )
+result
+```
+```{r}
+# 加载必要的包
+library(ggplot2)
+library(dplyr)
+
+
+# 1. 死亡人数 vs. 病例数
+ggplot(result, aes(x = Age.Percent.65.and.Older, y = DeathNumber)) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  geom_smooth(method = "lm", color = "darkred", se = TRUE) +
+  labs(
+    title = "Relationship between Age_over_65 poportion and Death Number",
+    x = "Age.Percent.65.and.Older",
+    y = "Death Number"
+  ) +
+  theme_minimal()
+
+# 2. 疫苗接种率（第一剂） vs. 死亡人数
+ggplot(result, aes(x = Administered_Dose1_Pop_Pct, y = DeathNumber)) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  geom_smooth(method = "lm", color = "darkred", se = TRUE) +
+  labs(
+    title = "Death Number vs. Dose 1 Vaccination Percentage",
+    x = "Dose 1 Vaccination Percentage (%)",
+    y = "Death Number"
+  ) +
+  theme_minimal()
+
+# 3. 人均收入 vs. 死亡人数
+ggplot(result, aes(x = income, y = DeathNumber)) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  geom_smooth(method = "lm", color = "darkred", se = TRUE) +
+  labs(
+    title = "Death Number vs. Income",
+    x = "Income",
+    y = "Death Number"
+  ) +
+  theme_minimal()
+
+# 4. 人口密度 vs. 病例数
+ggplot(result, aes(x = density, y = DeathNumber)) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  geom_smooth(method = "lm", color = "darkred", se = TRUE) +
+  labs(
+    title = "Case Number vs. Population Density",
+    x = "Population Density",
+    y = "Death Number"
+  ) +
+  theme_minimal()
+
+
+```
+
+
+```{r}
+# 加载必要的包
+library(ggplot2)
+library(dplyr)
+
+# 定义一个函数来绘制回归残差
+plot_residuals <- function(data, x_var, y_var, model_name) {
+  # 创建线性模型
+  model <- lm(as.formula(paste(y_var, "~", x_var)), data = data)
+  
+  # 计算残差
+  data$residuals <- resid(model)
+  
+  # 绘制残差图
+  ggplot(data, aes_string(x = x_var, y = "residuals")) +
+    geom_point(alpha = 0.6, color = "steelblue") +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "darkred") +
+    labs(
+      title = paste("Residuals for", model_name),
+      x = x_var,
+      y = "Residuals"
+    ) +
+    theme_minimal()
+}
+
+# 1. DeathNumber vs. CaseNumber
+plot_residuals(result, "Age.Percent.65.and.Older", "DeathNumber", "Age_over_65 vs. Death Number")
+
+# 2. DeathNumber vs. Administered_Dose1_Pop_Pct
+plot_residuals(result, "Administered_Dose1_Pop_Pct", "DeathNumber", "Dose 1 Vaccination % vs. Death Number")
+
+# 3. DeathNumber vs. income
+plot_residuals(result, "income", "DeathNumber", "Income vs. Death Number")
+
+# 4. CaseNumber vs. density
+plot_residuals(result, "density", "DeathNumber", "Population Density vs. Death Number")
+
+
+```
+```{r}
+library(GGally)
+# 绘制散点图矩阵
+ggpairs(result, 
+        columns = c("DeathNumber", "CaseNumber", "Administered_Dose1_Pop_Pct", 
+                    "Series_Complete_Pop_Pct", "density", "income"),
+        aes(color = State, alpha = 0.7),
+        title = "Scatterplot Matrix of Selected Variables")
+
+```
+
+```{r}
+# 绘制死亡人数的直方图
+ggplot(result, aes(x = DeathNumber)) +
+  geom_histogram(binwidth = 100, fill = "steelblue", color = "white", alpha = 0.7) +
+  labs(
+    title = "Distribution of Death Number",
+    x = "Death Number",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+# 绘制病例数的密度图
+ggplot(result, aes(x = CaseNumber)) +
+  geom_density(fill = "steelblue", alpha = 0.7) +
+  labs(
+    title = "Density Plot of Case Number",
+    x = "Case Number",
+    y = "Density"
+  ) +
+  theme_minimal()
+
+```
+```{r}
+# 各州的死亡人数分布
+ggplot(result, aes(x = State, y = DeathNumber)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.7) +
+  labs(
+    title = "Box Plot of Death Number by State",
+    x = "State",
+    y = "Death Number"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+```{r}
+# 使用 DeathNumber ~ CaseNumber 模型
+model <- lm(DeathNumber ~ CaseNumber, data = result)
+
+# 残差 vs 拟合值图
+ggplot(data.frame(fitted = fitted(model), residuals = resid(model)), 
+       aes(x = fitted, y = residuals)) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "darkred") +
+  labs(
+    title = "Residuals vs. Fitted Values",
+    x = "Fitted Values",
+    y = "Residuals"
+  ) +
+  theme_minimal()
+
+```
+
+
+
+```{r}
+
+
+# 将变量名称整理为模型中需要的列
+variables <- c("Administered_Dose1_Pop_Pct", 
+               "Series_Complete_Pop_Pct", 
+               "Booster_Doses_Vax_Pct", 
+               "density", 
+               "income", 
+               "POPESTIMATE",
+               "Age.Percent.65.and.Older")
+
+# 构建公式
+formula <- as.formula(paste("DeathNumber ~", paste(variables, collapse = " + ")))
+
+# 构建线性模型
+model <- lm(formula, data = datatest)
+
+# 输出模型结果
+summary(model)
+
+```
+```{r}
+datatest <- datatest %>%
+  mutate(DeathNumber = ifelse(DeathNumber < 0, 0, DeathNumber))
+
+```
+```{r}
+# 确保数据加载正确
+# 假设 datatest 是你的数据集
+
+# 定义变量名称
+variables <- c("Administered_Dose1_Pop_Pct", 
+               "Series_Complete_Pop_Pct", 
+               "Booster_Doses_Vax_Pct", 
+               "density", 
+               "income", 
+               "POPESTIMATE",
+               "Age.Percent.65.and.Older")
+
+# 构建公式
+formula <- as.formula(paste("DeathNumber ~", paste(variables, collapse = " + ")))
+
+model <- glm(formula, family = poisson(link = "log"), data = datatest)
+
+# 输出模型结果
+summary(model)
+
+```
+```{r}
+# 加载必要的包
+if (!require(MASS)) install.packages("MASS")
+library(MASS)
+
+# 定义变量名称
+variables <- c("Administered_Dose1_Pop_Pct", 
+               "Series_Complete_Pop_Pct", 
+               "Booster_Doses_Vax_Pct", 
+               "density", 
+               "income", 
+               "POPESTIMATE",
+               "Age.Percent.65.and.Older")
+
+# 构建公式
+formula <- as.formula(paste("DeathNumber ~", paste(variables, collapse = " + ")))
+
+# 负二项回归
+model_nb <- glm.nb(formula, data = datatest)
+
+# 输出模型结果
+summary(model_nb)
+
+# 评估拟合效果
+# 计算 AIC
+AIC(model_nb)
+
+# 检查过度离散
+overdispersion_test <- function(model) {
+  # 计算残差和自由度的比值
+  dispersion <- sum(residuals(model, type = "pearson")^2) / df.residual(model)
+  return(dispersion)
+}
+
+overdispersion_test(model_nb)
+
+```
+```{r}
+# 加载必要的包
+if (!require(dplyr)) install.packages("dplyr")
+library(dplyr)
+
+# 定义变量名称
+variables <- c("Administered_Dose1_Pop_Pct", 
+               "Series_Complete_Pop_Pct", 
+               "Booster_Doses_Vax_Pct", 
+               "density", 
+               "income", 
+               "POPESTIMATE",
+               "Age.Percent.65.and.Older")
+
+# 构建公式
+formula <- as.formula(paste("DeathNumber ~", paste(variables, collapse = " + ")))
+
+# 按照 county 分组并构建线性回归模型
+models_by_county <- datatest %>%
+  group_by(County) %>%
+  group_split() %>%
+  lapply(function(data) {
+    # 如果分组数据量过小，跳过模型构建
+    if (nrow(data) > length(variables)) {
+      lm(formula, data = data)
+    } else {
+      NULL
+    }
+  })
+
+# 移除 NULL 值（数据过小的分组）
+models_by_county <- models_by_county[!sapply(models_by_county, is.null)]
+
+# 提取每个模型的摘要
+model_summaries <- lapply(models_by_county, summary)
+
+model_summaries[[1]]
+
+
+```
+
+```{r}
+# 加载必要的包
+if (!require(dplyr)) install.packages("dplyr")
+if (!require(MASS)) install.packages("MASS")
+library(dplyr)
+
+# 定义变量名称
+variables <- c("Administered_Dose1_Pop_Pct", 
+               "Series_Complete_Pop_Pct", 
+               "Booster_Doses_Vax_Pct", 
+               "density", 
+               "income", 
+               "POPESTIMATE",
+               "Age.Percent.65.and.Older")
+
+# 构建公式
+formula <- as.formula(paste("DeathNumber ~", paste(variables, collapse = " + ")))
+
+# 按照 county 分组并构建 Poisson 回归模型
+models_by_county <- datatest %>%
+  group_by(County) %>%
+  group_split() %>%
+  lapply(function(data) {
+    # 如果分组数据量过小，跳过模型构建
+    if (nrow(data) > length(variables)) {
+      glm(formula, family = poisson(link = "log"), data = data)
+    } else {
+      NULL
+    }
+  })
+
+# 移除 NULL 值（数据过小的分组）
+models_by_county <- models_by_county[!sapply(models_by_county, is.null)]
+
+# 提取每个模型的摘要
+model_summaries <- lapply(models_by_county, summary)
+
+# 示例：查看第一个分组模型的结果
+model_summaries[[1]]
+
+```
+
+
+
+```{r}
+# 按照 county 分组并计算每个分组的统计值，例如均值
+county_summary <- datatest %>%
+  group_by(County) %>%
+  summarize(
+    mean_DeathNumber = mean(DeathNumber, na.rm = TRUE),
+    mean_Administered_Dose1_Pop_Pct = mean(Administered_Dose1_Pop_Pct, na.rm = TRUE)
+  )
+
+# 绘制图形，例如用 mean_Administered_Dose1_Pop_Pct 和 mean_DeathNumber
+ggplot(county_summary, aes(x = mean_Administered_Dose1_Pop_Pct, y = mean_DeathNumber)) +
+  geom_point() +  # 绘制散点图
+  theme_minimal() +  # 使用简约主题
+  theme(
+    axis.title = element_blank(),       # 去掉轴标签
+    axis.text = element_blank(),        # 去掉轴刻度标签
+    axis.ticks = element_blank(),       # 去掉刻度
+    legend.position = "none"            # 去掉图例
+  ) +
+  ggtitle("County Data Visualization (Without Labels)")
+```
+
+```{r}
+
+# 定义变量名称
+variables <- c("Administered_Dose1_Pop_Pct", 
+               "Series_Complete_Pop_Pct", 
+               "Booster_Doses_Vax_Pct", 
+               "density", 
+               "income", 
+               "POPESTIMATE",
+               "Age.Percent.65.and.Older")
+
+# 构建公式
+formula <- as.formula(paste("DeathNumber ~", paste(variables, collapse = " + ")))
+
+# 按照 State 分组构建线性回归模型
+linear_models_by_state <- datatest %>%
+  group_by(State) %>%
+  group_split() %>%
+  lapply(function(data) {
+    # 如果分组数据量过小，跳过模型构建
+    if (nrow(data) > length(variables)) {
+      lm(formula, data = data)
+    } else {
+      NULL
+    }
+  })
+
+# 移除 NULL 值（数据过小的分组）
+linear_models_by_state <- linear_models_by_state[!sapply(linear_models_by_state, is.null)]
+
+# 按照 State 分组构建 Poisson 回归模型
+poisson_models_by_state <- datatest %>%
+  group_by(State) %>%
+  group_split() %>%
+  lapply(function(data) {
+    # 如果分组数据量过小，跳过模型构建
+    if (nrow(data) > length(variables)) {
+      glm(formula, family = poisson(link = "log"), data = data)
+    } else {
+      NULL
+    }
+  })
+
+# 移除 NULL 值（数据过小的分组）
+poisson_models_by_state <- poisson_models_by_state[!sapply(poisson_models_by_state, is.null)]
+
+# 提取每个模型的摘要
+linear_model_summaries <- lapply(linear_models_by_state, summary)
+poisson_model_summaries <- lapply(poisson_models_by_state, summary)
+
+# 示例：查看某个 State 的线性和 Poisson 模型结果
+linear_model_summaries[[1]]  # 第一个州的线性回归模型摘要
+poisson_model_summaries[[1]] # 第一个州的 Poisson 回归模型摘要
+
+# 可选：提取每个 State 的 AIC 值（仅适用于 Poisson 模型）
+aic_by_state <- sapply(poisson_models_by_state, function(model) AIC(model))
+
+# 查看 AIC 分布统计信息
+summary(aic_by_state)
+
+```
+```{r}
+# 提取线性回归系数
+linear_coefficients <- do.call(rbind, lapply(linear_models_by_state, coef))
+rownames(linear_coefficients) <- paste0("State_", seq_len(nrow(linear_coefficients)))
+
+# 提取 Poisson 回归系数
+poisson_coefficients <- do.call(rbind, lapply(poisson_models_by_state, coef))
+rownames(poisson_coefficients) <- paste0("State_", seq_len(nrow(poisson_coefficients)))
+
+# 线性回归系数图
+boxplot(linear_coefficients, main = "Linear Regression Coefficients by State",
+        las = 2, xlab = "Variables", ylab = "Coefficient Values", col = "lightblue")
+
+# Poisson 回归系数图
+boxplot(poisson_coefficients, main = "Poisson Regression Coefficients by State",
+        las = 2, xlab = "Variables", ylab = "Coefficient Values", col = "lightgreen")
+
+```
+
+```{r}
+# 提取残差
+linear_residuals <- lapply(linear_models_by_state, residuals)
+poisson_residuals <- lapply(poisson_models_by_state, residuals)
+
+# 将所有残差合并到单个向量中
+linear_residuals_combined <- unlist(linear_residuals)
+poisson_residuals_combined <- unlist(poisson_residuals)
+
+# 绘制残差分布直方图
+par(mfrow = c(1, 2))
+hist(linear_residuals_combined, breaks = 30, main = "Linear Regression Residuals",
+     xlab = "Residuals", col = "skyblue", border = "white")
+
+hist(poisson_residuals_combined, breaks = 30, main = "Poisson Regression Residuals",
+     xlab = "Residuals", col = "lightgreen", border = "white")
+
+```
+```{r}
+# 按照 State 分组并计算每个分组的统计值，例如均值
+state_summary <- datatest %>%
+  group_by(State) %>%
+  summarize(
+    mean_DeathNumber = mean(DeathNumber, na.rm = TRUE),
+    mean_Administered_Dose1_Pop_Pct = mean(Administered_Dose1_Pop_Pct, na.rm = TRUE)
+  )
+
+# 绘制图形，例如用 mean_Administered_Dose1_Pop_Pct 和 mean_DeathNumber
+ggplot(state_summary, aes(x = mean_Administered_Dose1_Pop_Pct, y = mean_DeathNumber)) +
+  geom_point() +  # 绘制散点图
+  theme_minimal() +  # 使用简约主题
+  theme(
+    axis.title = element_blank(),       # 去掉轴标签
+    axis.text = element_blank(),        # 去掉轴刻度标签
+    axis.ticks = element_blank(),       # 去掉刻度
+    legend.position = "none"            # 去掉图例
+  ) +
+  ggtitle("State Data Visualization (Without Labels)")
+
+```
+
